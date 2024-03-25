@@ -1,5 +1,6 @@
 module QubitCo::DaoFactory{
 
+    use std::option;
     use std::signer::address_of;
     use std::string;
     use aptos_std::table;
@@ -13,12 +14,49 @@ module QubitCo::DaoFactory{
 
     struct Dao<phantom Token> has key {
         admin_address:address,
-        proposals: Proposals<Token>
+        dao_name: string::String,
+        proposals: Proposals<Token>,
+        dao_config: DaoConfig<Token>
     }
 
-    struct Proposal<phantom Token> has store, copy {
+    /// Configuration of the `Token`'s DAO.
+    struct DaoConfig<phantom TokenT: copy + drop + store> has copy, drop, store {
+        /// after proposal created, how long use should wait before he can vote (in milliseconds)]
+        voting_delay: u64,
+        /// how long the voting window is (in milliseconds).
+        voting_period: u64,
+        /// the quorum rate to agree on the proposal.
+        /// if 50% votes needed, then the voting_quorum_rate should be 50.
+        /// it should between (0, 100].
+        voting_quorum_rate: u8,
+        /// how long the proposal should wait before it can be executed (in milliseconds).
+        min_action_delay: u64,
+        ///random punishment enabled or not
+        random_punishment_enable: bool
+    }
+
+    /// Proposal data struct.
+    struct Proposal<phantom Token: store> has key {
+        /// id of the proposal
         id: u64,
-        content: string::String,
+        /// creator of the proposal
+        proposer: address,
+        /// when voting begins.
+        start_time: u64,
+        /// when voting ends.
+        end_time: u64,
+        /// count of voters who agree with the proposal
+        for_votes: u128,
+        /// count of voters who're against the proposal
+        against_votes: u128,
+        /// executable after this time.
+        eta: u64,
+        /// after how long, the agreed proposal can be executed.
+        action_delay: u64,
+        /// how many votes to reach to make the proposal pass.
+        quorum_votes: u128,
+        /// proposal action.
+        action: option::Option<string::String>,
     }
 
     struct Proposals<phantom Token> has key {
@@ -38,10 +76,18 @@ module QubitCo::DaoFactory{
 
         move_to(&dao_signer,Dao<Token>{
             admin_address:address_of(creator),
+            dao_name:string::utf8(dao_name),
             proposals:Proposals<Token>{
                 id:0,
                 next_proposal_id:0,
                 proposal_table:table
+            },
+            dao_config:DaoConfig<Token>{
+                voting_delay:0,
+                voting_period:0,
+                voting_quorum_rate:50,
+                min_action_delay: 0,
+                random_punishment_enable: false
             }
         });
 
@@ -53,6 +99,8 @@ module QubitCo::DaoFactory{
             }
         );
     }
+
+
 
 
     ///*****************
