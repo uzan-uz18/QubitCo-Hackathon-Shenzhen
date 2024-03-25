@@ -1,0 +1,16 @@
+[package]
+name = "dao_randomness"
+version = "1.0.0"
+authors = []
+
+[addresses]
+QubitCo="2baf314e69cb65866e1598108c6fe1aa16ae6dc6039f1d3fb5cc49d1ae4831bb"
+
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "devnet"
+subdir = "aptos-move/framework/aptos-framework"
+
+[dev-dependencies]
