@@ -8,7 +8,7 @@ module QubitCo::DaoFactory{
     use aptos_framework::guid;
     use aptos_framework::guid::GUID;
     use aptos_framework::object;
-    use aptos_framework::object::object_exists;
+    use aptos_framework::object::{object_exists, Object};
 
     const ERROR_NOWNER: u64 = 1;
 
@@ -32,7 +32,7 @@ module QubitCo::DaoFactory{
         /// how long the proposal should wait before it can be executed (in milliseconds).
         min_action_delay: u64,
         ///random punishment enabled or not
-        random_punishment_enable: bool
+        random_adjust_enable: bool
     }
 
     /// Proposal data struct.
@@ -65,7 +65,7 @@ module QubitCo::DaoFactory{
         proposal_table: table::Table<u64,Proposal<Token>>,
     }
 
-    public entry fun create_dao<Token>(creator:&signer, dao_name:vector<u8>){
+    public entry fun create_dao<Token>(creator:&signer, dao_name:vector<u8>):address{
         /// each account can only create one DAO
         assert!(!object_exists<Dao<Token>>(address_of(creator)),ERROR_NOWNER);
         /// todo: add staking or cost mechanism
@@ -87,7 +87,7 @@ module QubitCo::DaoFactory{
                 voting_period:0,
                 voting_quorum_rate:50,
                 min_action_delay: 0,
-                random_punishment_enable: false
+                random_adjust_enable: false
             }
         });
 
@@ -98,6 +98,37 @@ module QubitCo::DaoFactory{
                 dao_name: string::utf8(dao_name)
             }
         );
+        object::address_from_constructor_ref(&dao_ref)
+    }
+
+
+    /**
+    /// Configuration of the `Token`'s DAO.
+    struct DaoConfig<phantom TokenT: copy + drop + store> has copy, drop, store {
+        /// after proposal created, how long use should wait before he can vote (in milliseconds)]
+        voting_delay: u64,
+        /// how long the voting window is (in milliseconds).
+        voting_period: u64,
+        /// the quorum rate to agree on the proposal.
+        /// if 50% votes needed, then the voting_quorum_rate should be 50.
+        /// it should between (0, 100].
+        voting_quorum_rate: u8,
+        /// how long the proposal should wait before it can be executed (in milliseconds).
+        min_action_delay: u64,
+        ///random punishment enabled or not
+        random_punishment_enable: bool
+    }
+    */
+    public entry fun config_dao<Token>(dao_admin:&signer,dao_obj:Object<Token>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,min_action_delay:u64,random_adjust_enable:bool) acquires DaoConfig {
+        ///todo define ERROR CODE in different scenarios
+        assert!(object::owns(dao_obj,address_of(dao_admin)),1);
+        let obj_address=object::object_address(&dao_obj);
+        let dao_config=borrow_global_mut<DaoConfig<Token>>(obj_address);
+        dao_config.voting_period=voting_period;
+        dao_config.voting_delay=voting_delay;
+        dao_config.voting_quorum_rate=voting_quorum_rate;
+        dao_config.min_action_delay=min_action_delay;
+        dao_config.random_adjust_enable=random_adjust_enable;
     }
 
 
