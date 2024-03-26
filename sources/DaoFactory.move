@@ -5,6 +5,8 @@ module QubitCo::DaoFactory{
     use std::signer::address_of;
     use std::string;
     use aptos_std::table;
+    use aptos_framework::coin;
+    use aptos_framework::coin::Coin;
     use aptos_framework::event;
     use aptos_framework::guid;
     use aptos_framework::guid::GUID;
@@ -22,6 +24,7 @@ module QubitCo::DaoFactory{
 
     const ERROR_NOWNER: u64 = 1;
     const ERR_ACTION_DELAY_TOO_SMALL: u64=10;
+    const DUPLICATED_V0TE: u64=20;
 
     struct Dao<phantom Token> has key {
         admin_address:address,
@@ -31,7 +34,7 @@ module QubitCo::DaoFactory{
     }
 
     /// Configuration of the `Token`'s DAO.
-    struct DaoConfig<phantom TokenT: copy + drop + store> has copy, drop, store {
+    struct DaoConfig<phantom TokenT> has store,copy {
         /// after proposal created, how long use should wait before he can vote (in milliseconds)]
         voting_delay: u64,
         /// how long the voting window is (in milliseconds).
@@ -45,7 +48,7 @@ module QubitCo::DaoFactory{
     }
 
     /// Proposal data struct.
-    struct Proposal<phantom Token: store> has key {
+    struct Proposal<phantom Token> has store {
         /// id of the proposal
         id: u64,
         /// creator of the proposal
@@ -68,10 +71,22 @@ module QubitCo::DaoFactory{
         action: option::Option<string::String>,
     }
 
-    struct Proposals<phantom Token> has key {
+    struct Proposals<phantom Token> has store {
         id: u64,
         next_proposal_id: u64,
         proposal_table: table::Table<u64,Proposal<Token>>,
+    }
+
+    /// User vote info.
+    struct Vote<phantom Token> has key {
+        /// vote for the proposal under the `proposer`.
+        proposer: address,
+        /// proposal id.
+        id: u64,
+        /// how many tokens to stake.
+        stake: option::Option<coin::Coin<Token>>,
+        /// vote for or vote against.
+        agree: bool,
     }
 
     public entry fun create_dao<Token>(creator:&signer, dao_name:vector<u8>){
@@ -108,21 +123,21 @@ module QubitCo::DaoFactory{
         );
     }
 
-    public entry fun config_dao<Token>(dao_admin:&signer,dao_obj:Object<Token>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,random_adjust_enable:bool) acquires DaoConfig {
+    public entry fun config_dao<Token>(dao_admin:&signer,dao_obj:Object<Dao<Token>>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,random_adjust_enable:bool) acquires Dao {
         ///todo define ERROR CODE in different scenarios
         assert!(object::owns(dao_obj,address_of(dao_admin)),1);
         let obj_address=object::object_address(&dao_obj);
-        let dao_config=borrow_global_mut<DaoConfig<Token>>(obj_address);
-        dao_config.voting_period=voting_period;
-        dao_config.voting_delay=voting_delay;
-        dao_config.voting_quorum_rate=voting_quorum_rate;
-        dao_config.random_adjust_enable=random_adjust_enable;
+        let dao=borrow_global_mut<Dao<Token>>(obj_address);
+        dao.dao_config.voting_period=voting_period;
+        dao.dao_config.voting_delay=voting_delay;
+        dao.dao_config.voting_quorum_rate=voting_quorum_rate;
+        dao.dao_config.random_adjust_enable=random_adjust_enable;
     }
 
 
-    public fun propose<Token>(
+    public entry fun propose<Token>(
         signer: &signer,
-        dao_obj:Object<Token>,
+        dao_obj:Object<Dao<Token>>,
         action: vector<u8>,
         action_delay:u64
     ) acquires Dao {
@@ -152,16 +167,56 @@ module QubitCo::DaoFactory{
             quorum_votes,
             action: option::some(string::utf8(action)),
         };
-        table::add(&mut dao.proposals,proposal_id,proposal);
+        table::add(&mut dao.proposals.proposal_table,proposal_id,proposal);
 
         event::emit(
             ProposalCreationEvent{
+                dao_id:dao_obj_address,
                 proposer,
                 proposal_id
             }
         );
     }
 
+    ///vote for a proposal
+    /// users can vote
+    public entry fun cast_vote<Token>(
+        voter: signer,
+        proposer_address: address,
+        dao_obj: Object<Dao<Token>>,
+        proposal_id: u64,
+        agree: bool,
+        votes: u128,
+    ) acquires Vote, Dao {
+        let voter_address = signer::address_of(&voter);
+        assert!(!has_vote<Token>(voter_address, proposer_address, proposal_id),DUPLICATED_V0TE);
+        let dao_obj_addr=object::object_address(&dao_obj);
+        let dao= borrow_global_mut<Dao<Token>>(dao_obj_addr);
+        let vote=Vote<Token>{
+            /// vote for the proposal under the `proposer`.
+            proposer: proposer_address,
+            /// proposal id.
+            id: proposal_id,
+            /// how many tokens to stake.
+            stake: option::none<Coin<Token>>(),
+            /// vote for or vote against.
+            agree: agree,
+        };
+
+
+        /// proposal: &mut Proposal<Token>, vote: &mut Vote<Token>, stake: coin::Coin<Token>
+        calculate_votes(table::borrow_mut(&mut dao.proposals.proposal_table,proposal_id),&mut vote,coin::balance<Token>(voter_address));
+
+        move_to(&mut voter,vote);
+
+        event::emit(VoteEvent{
+            dao_id: dao_obj_addr,
+            proposer: proposer_address,
+            proposal_id,
+            voter_address,
+            agree
+        });
+    }
 
 
     ///*****************
@@ -170,6 +225,29 @@ module QubitCo::DaoFactory{
     public fun quorum_votes<Token>(dao_config:&DaoConfig<Token>):u128 {
         let rate=(dao_config.voting_quorum_rate as u128);
         TOKEN_SUPPLY*rate/100
+    }
+
+    /// Check whether voter has voted on proposal with `proposal_id` of `proposer_address`.
+    fun has_vote<Token>(
+        voter: address,
+        proposer_address: address,
+        proposal_id: u64,
+    ): bool acquires Vote {
+        if (!exists<Vote<Token>>(voter)) {
+            return false
+        };
+
+        let vote = borrow_global<Vote<Token>>(voter);
+        vote.proposer == proposer_address && vote.id == proposal_id
+    }
+
+    fun calculate_votes<Token>(proposal: &mut Proposal<Token>, vote: &mut Vote<Token>, stake: u64) {
+        let stake_value = (stake as u128);
+        if (vote.agree) {
+            proposal.for_votes = proposal.for_votes + stake_value;
+        } else {
+            proposal.against_votes = proposal.against_votes + stake_value;
+        };
     }
 
 
@@ -186,9 +264,20 @@ module QubitCo::DaoFactory{
 
     #[event]
     struct ProposalCreationEvent has drop, store {
+        dao_id: address,
         proposer: address,
         proposal_id: u64
     }
+
+    #[event]
+    struct VoteEvent has drop, store {
+        dao_id: address,
+        proposer: address,
+        proposal_id: u64,
+        voter_address: address,
+        agree: bool
+    }
+
 
 
 }
