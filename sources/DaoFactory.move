@@ -4,6 +4,8 @@ module QubitCo::DaoFactory{
     use std::signer;
     use std::signer::address_of;
     use std::string;
+    use aptos_std::debug;
+    use aptos_std::string_utils::to_string;
     use aptos_std::table;
     use aptos_framework::coin;
     use aptos_framework::coin::Coin;
@@ -14,6 +16,8 @@ module QubitCo::DaoFactory{
     use aptos_framework::object::{object_exists, Object};
     use aptos_framework::timestamp;
     use aptos_framework::voting;
+    #[test_only]
+    use aptos_framework::aptos_coin::AptosCoin;
 
     /// ************************
     /// Some mock data for demo
@@ -25,6 +29,10 @@ module QubitCo::DaoFactory{
     const ERROR_NOWNER: u64 = 1;
     const ERR_ACTION_DELAY_TOO_SMALL: u64=10;
     const DUPLICATED_V0TE: u64=20;
+
+    struct DaoGlobalInfo<phantom Token> has key{
+        dao_id:address
+    }
 
     struct Dao<phantom Token> has key {
         admin_address:address,
@@ -112,6 +120,10 @@ module QubitCo::DaoFactory{
                 voting_quorum_rate:50,
                 random_adjust_enable: false
             }
+        });
+
+        move_to(creator,DaoGlobalInfo<Token>{
+            dao_id:object::address_from_constructor_ref(&dao_ref)
         });
 
         event::emit(
@@ -250,6 +262,16 @@ module QubitCo::DaoFactory{
         };
     }
 
+    #[view]
+    fun get_dao_config<Token>(dao_owner:&signer):string::String acquires DaoGlobalInfo, Dao {
+        let dao_global_info=borrow_global_mut<DaoGlobalInfo<Token>>(signer::address_of(dao_owner));
+        let dao_id=dao_global_info.dao_id;
+
+        let dao=borrow_global_mut<Dao<Token>>(dao_id);
+        debug::print(dao);
+        to_string(dao)
+    }
+
 
 
     ///*****************
@@ -279,5 +301,21 @@ module QubitCo::DaoFactory{
     }
 
 
+    ///// Unit Test
+    #[test(dao_creator =@0xff)]
+    public fun test_create_dao_and_config(dao_creator:&signer) acquires DaoGlobalInfo, Dao {
+        create_dao<AptosCoin>(dao_creator, b"TestDAO");
+        let dao_global_info=borrow_global_mut<DaoGlobalInfo<AptosCoin>>(signer::address_of(dao_creator));
+        let dao_id=dao_global_info.dao_id;
+
+        let dao=borrow_global_mut<Dao<AptosCoin>>(dao_id);
+
+        dao.dao_config.voting_period=1000;
+        dao.dao_config.voting_delay=1000;
+        dao.dao_config.voting_quorum_rate=60;
+        dao.dao_config.random_adjust_enable=true;
+
+        get_dao_config<AptosCoin>(dao_creator);
+    }
 
 }
