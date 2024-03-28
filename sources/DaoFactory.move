@@ -17,9 +17,13 @@ module QubitCo::DaoFactory{
     use aptos_framework::timestamp;
     use aptos_framework::voting;
     #[test_only]
+    use std::acl::add;
+    #[test_only]
     use aptos_std::debug::print;
     #[test_only]
     use aptos_std::string_utils;
+    #[test_only]
+    use aptos_framework::account;
     #[test_only]
     use aptos_framework::aptos_coin::AptosCoin;
     #[test_only]
@@ -206,14 +210,13 @@ module QubitCo::DaoFactory{
     ///vote for a proposal
     /// users can vote
     public entry fun cast_vote<Token>(
-        voter: signer,
+        voter: &signer,
         proposer_address: address,
         dao_obj: Object<Dao<Token>>,
         proposal_id: u64,
         agree: bool,
-        votes: u128,
     ) acquires Vote, Dao {
-        let voter_address = signer::address_of(&voter);
+        let voter_address = signer::address_of(voter);
         assert!(!has_vote<Token>(voter_address, proposer_address, proposal_id),DUPLICATED_V0TE);
         let dao_obj_addr=object::object_address(&dao_obj);
         let dao= borrow_global_mut<Dao<Token>>(dao_obj_addr);
@@ -232,7 +235,7 @@ module QubitCo::DaoFactory{
         /// proposal: &mut Proposal<Token>, vote: &mut Vote<Token>, stake: coin::Coin<Token>
         calculate_votes(table::borrow_mut(&mut dao.proposals.proposal_table,proposal_id),&mut vote,coin::balance<Token>(voter_address));
 
-        move_to(&mut voter,vote);
+        move_to(voter,vote);
 
         event::emit(VoteEvent{
             dao_id: dao_obj_addr,
@@ -356,6 +359,32 @@ module QubitCo::DaoFactory{
         assert!(table::contains(&dao.proposals.proposal_table,dao.proposals.next_proposal_id-1),NO_PROPOSAL_ERR);
     }
 
+
+/*    #[test(aptos_signer=@aptos_framework, dao_creator =@0xff, propose_signer=@0xee, voter=@0xcc)]
+    public fun test_create_dao_and_propose_and_vote(aptos_signer:&signer, dao_creator:&signer, propose_signer:&signer, voter:&signer) acquires Dao, DaoGlobalInfo, Vote {
+        let dao_ref=&generate_dao_obj<AptosCoin>(dao_creator,b"a dao");
+        set_time_has_started_for_testing(aptos_signer);
+        propose(propose_signer,object_from_constructor_ref<Dao<AptosCoin>>(dao_ref),b"do sth",1000_000_000);
+
+        let dao_global_info=borrow_global<DaoGlobalInfo<AptosCoin>>(signer::address_of(dao_creator));
+        let dao_id=dao_global_info.dao_id;
+
+        let dao=borrow_global<Dao<AptosCoin>>(dao_id);
+
+        ///public entry fun cast_vote<Token>(
+        //         voter: signer,
+        //         proposer_address: address,
+        //         dao_obj: Object<Dao<Token>>,
+        //         proposal_id: u64,
+        //         agree: bool,
+        //         votes: u128,
+        //     )
+
+
+        cast_vote(voter,signer::address_of(propose_signer),object_from_constructor_ref<Dao<AptosCoin>>(dao_ref),0,true);
+
+        assert!(has_vote<AptosCoin>(signer::address_of(voter),signer::address_of(propose_signer),0),9);
+    }*/
 
 
 }
