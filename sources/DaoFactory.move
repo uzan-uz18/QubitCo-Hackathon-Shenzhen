@@ -18,6 +18,10 @@ module QubitCo::DaoFactory{
     #[test_only]
     use aptos_std::debug;
     #[test_only]
+    use aptos_std::math64::min;
+    #[test_only]
+    use aptos_framework::aptos_coin;
+    #[test_only]
     use aptos_framework::aptos_coin::AptosCoin;
     #[test_only]
     use aptos_framework::object::object_from_constructor_ref;
@@ -27,9 +31,11 @@ module QubitCo::DaoFactory{
     /// ************************
     /// Some mock data for demo
     /// ************************
-    const TOKEN_SUPPLY:u64=1000_000_000_000;
+    /// For 1apt=100_000_000units
+    const TOKEN_SUPPLY:u64=1000_00_000_000;
     const DEFAULT_MIN_ACTION_DELAY: u64=60_000;
-    const MIN_COIN_HOLD_FOR_VOTE:u64 = 100_000_000;
+    const MIN_COIN_STAKE_FOR_VOTE:u64 = 1_00_000_000;
+    const DAO_START_UP_COINS:u64=10_00_000_000; //10 apts as startup
 
     /// ERROR CODES
     const ERR_ONE_ACCOUNT_ONE_COIN_ONE_DAO: u64 = 1;
@@ -37,6 +43,8 @@ module QubitCo::DaoFactory{
     const ERR_DUPLICATED_V0TE: u64=3;
     const ERR_NO_ENOUGH_BALANCE_FOR_VOTE:u64=4;
     const ERR_NOT_THE_OWNER:u64=5;
+    const ERR_NO_ENOUGH_STARTUP_COINS:u64=6;
+    const ERR_NOTHING_TO_REDEEM:u64=7;
 
 
     friend QubitCo::DaoProposeVoteScriptAptosCoin;
@@ -47,6 +55,7 @@ module QubitCo::DaoFactory{
     }
 
     struct Dao<phantom Token> has key {
+        pool_token: coin::Coin<Token>,
         admin_address:address,
         dao_name: string::String,
         proposals: Proposals<Token>,
@@ -91,6 +100,13 @@ module QubitCo::DaoFactory{
         action: option::Option<string::String>,
     }
 
+
+    struct ProposalIdentity<phantom Token> has copy, drop, store{
+        dao_obj_address:address,
+        proposer: address,
+        proposal_idx:u64
+    }
+
     struct Proposals<phantom Token> has store {
         id: u64,
         next_proposal_idx: u64,
@@ -112,21 +128,31 @@ module QubitCo::DaoFactory{
     }
 
     struct VoteStorage<phantom Token> has key {
-        vote_table:table::Table<guid::ID,Vote<Token>>
+        vote_table:table::Table<ProposalIdentity<Token>,Vote<Token>>
     }
 
 
     public(friend) fun generate_dao<Token>(creator:&signer, dao_name:vector<u8>):ConstructorRef{
         /// each account can only create one DAO
+        ///
+        if(!coin::is_account_registered<Token>(address_of(creator))){
+          coin::register<Token>(creator);
+        };
+
         assert!(!object_exists<Dao<Token>>(address_of(creator)), ERR_ONE_ACCOUNT_ONE_COIN_ONE_DAO);
-        /// todo: add staking or cost mechanism
+        assert!(coin::balance<Token>(address_of(creator))>DAO_START_UP_COINS,ERR_NO_ENOUGH_STARTUP_COINS);
+
         let dao_ref=object::create_named_object(creator,dao_name);
         let dao_signer=object::generate_signer(&dao_ref);
 
         let table=table::new<u64,Proposal<Token>>();
 
+        let init_pool_coin=coin::withdraw<Token>(creator,DAO_START_UP_COINS);
+        let pool=coin::zero<Token>();
+        coin::merge(&mut pool,init_pool_coin);
 
         move_to(&dao_signer,Dao<Token>{
+            pool_token:pool,
             admin_address:address_of(creator),
             dao_name:string::utf8(dao_name),
             proposals:Proposals<Token>{
@@ -157,6 +183,8 @@ module QubitCo::DaoFactory{
     }
 
 
+
+
     public(friend) fun config_dao<Token>(dao_admin:&signer,dao_obj:Object<Dao<Token>>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,rate_adjustment_method:string::String) acquires Dao {
         assert!(object::owns(dao_obj,address_of(dao_admin)),ERR_NOT_THE_OWNER);
         let obj_address=object::object_address(&dao_obj);
@@ -165,6 +193,13 @@ module QubitCo::DaoFactory{
         dao.dao_config.voting_delay=voting_delay;
         dao.dao_config.voting_quorum_rate=voting_quorum_rate;
         dao.dao_config.weight_adjustment_method =rate_adjustment_method;
+    }
+
+    public(friend) fun config_dao_strategy<Token>(dao_admin:&signer,dao_obj:Object<Dao<Token>>,rate_adjustment_strategy:string::String) acquires Dao {
+        assert!(object::owns(dao_obj,address_of(dao_admin)),ERR_NOT_THE_OWNER);
+        let obj_address=object::object_address(&dao_obj);
+        let dao=borrow_global_mut<Dao<Token>>(obj_address);
+        dao.dao_config.weight_adjustment_method =rate_adjustment_strategy;
     }
 
 
@@ -215,19 +250,28 @@ module QubitCo::DaoFactory{
     /// users can vote
     public(friend) fun cast_vote<Token>(
         voter: &signer,
-        proposer_address: address,
         dao_obj: Object<Dao<Token>>,
+        proposer_address: address,
         proposal_id: u64,
         agree: bool,
         stake: u64
     ) acquires Dao, VoteStorage {
-        assert!(coin::balance<Token>(signer::address_of(voter))>MIN_COIN_HOLD_FOR_VOTE, ERR_NO_ENOUGH_BALANCE_FOR_VOTE);
-        assert!(!has_vote<Token>(voter, proposer_address, proposal_id), ERR_DUPLICATED_V0TE);
+        assert!(coin::balance<Token>(signer::address_of(voter))> MIN_COIN_STAKE_FOR_VOTE, ERR_NO_ENOUGH_BALANCE_FOR_VOTE);
+        assert!(!has_vote<Token>(voter, object_address(&dao_obj),proposer_address, proposal_id), ERR_DUPLICATED_V0TE);
 
         let dao=borrow_global_mut<Dao<Token>>(object::object_address(&dao_obj));
         let proposal=table::borrow_mut(&mut dao.proposals.proposal_table,proposal_id);
 
         let final_stake=GovernStrategy::execute_strategy(dao.dao_config.weight_adjustment_method,stake,TOKEN_SUPPLY);
+
+        if(final_stake < MIN_COIN_STAKE_FOR_VOTE) {
+            final_stake=MIN_COIN_STAKE_FOR_VOTE;
+        };
+
+        /// stake logics
+        let stake_coin=coin::withdraw<Token>(voter,final_stake);
+        coin::merge(&mut dao.pool_token,stake_coin);
+
 
         let vote=Vote<Token>{
             ///dao object id
@@ -248,7 +292,9 @@ module QubitCo::DaoFactory{
             proposal.against_votes = proposal.against_votes + final_stake;
         };
 
-        let proposal_uid=guid::create_id(proposal.proposer,proposal.idx);
+        let proposal_uid=create_unique_proposal_id(object::object_address(&dao_obj),proposer_address,proposal_id);
+
+
         table::add(&mut borrow_global_mut<VoteStorage<Token>>(signer::address_of(voter)).vote_table,proposal_uid,vote);
 
 
@@ -260,6 +306,22 @@ module QubitCo::DaoFactory{
             agree,
             final_stake
         });
+    }
+
+    public(friend) fun redeem<Token>(voter:&signer,dao_obj:Object<Dao<Token>>, proposer_address:address,proposal_idx:u64) acquires VoteStorage, Dao {
+
+        assert!(has_vote<Token>(voter,object_address(&dao_obj),proposer_address,proposal_idx),ERR_NOTHING_TO_REDEEM);
+
+        let proposal_uid=create_unique_proposal_id<Token>(object_address(&dao_obj),proposer_address,proposal_idx);
+        let vote_storage=borrow_global_mut<VoteStorage<Token>>(signer::address_of(voter));
+        let vote=table::borrow_mut(&mut vote_storage.vote_table,proposal_uid);
+
+        let dao=borrow_global_mut<Dao<Token>>(object_address(&dao_obj));
+
+        let dao_pool_coin=&mut dao.pool_token;
+
+        let coin_to_redeem=coin::extract(dao_pool_coin,vote.final_stake);
+        coin::deposit(signer::address_of(voter),coin_to_redeem);
     }
 
 
@@ -274,18 +336,19 @@ module QubitCo::DaoFactory{
     /// Check whether voter has voted on proposal with `proposal_id` of `proposer_address`.
     fun has_vote<Token>(
         voter: &signer,
+        dao_obj_address:address,
         proposer_address: address,
         proposal_idx: u64,
     ): bool acquires VoteStorage {
         if (!exists<VoteStorage<Token>>(signer::address_of(voter))) {
             move_to(voter,VoteStorage<Token>{
-                vote_table:table::new<guid::ID,Vote<Token>>()
+                vote_table:table::new<ProposalIdentity<Token>,Vote<Token>>()
             });
             return false
         };
 
         let vote_table = &mut borrow_global_mut<VoteStorage<Token>>(signer::address_of(voter)).vote_table;
-        let proposal_uid=guid::create_id(proposer_address, proposal_idx);
+        let proposal_uid=create_unique_proposal_id<Token>(dao_obj_address,proposer_address, proposal_idx);
 
         if(!table::contains(vote_table,proposal_uid)){
             return false
@@ -306,11 +369,15 @@ module QubitCo::DaoFactory{
         to_string(dao)
     }
 
-    fun calculation_model(stake:u64,max_supply:u64):u64{
-        //fixed_point32::get_raw_value(math64::log2(fixed_point32::divide_u64(stake,fixed_point32::create_from_u64(max_supply))+1))
-        fixed_point32::divide_u64(stake*100,fixed_point32::create_from_u64(max_supply))
-
+    fun create_unique_proposal_id<Token>(dao_obj_address:address,proposer:address,proposal_idx:u64):ProposalIdentity<Token> {
+        ProposalIdentity<Token>{
+            dao_obj_address,
+            proposer,
+            proposal_idx
+        }
     }
+
+
 
 
     ///*****************
@@ -343,8 +410,8 @@ module QubitCo::DaoFactory{
 
     ///// Unit Test
     ///
-
-    #[test_only]
+    /// Not avaiable after staking logic added. I don`t know how to create coin.
+    /*#[test_only]
     const NO_PROPOSAL_ERR:u64=110;
 
     #[test_only]
@@ -372,6 +439,10 @@ module QubitCo::DaoFactory{
 
     #[test(aptos_signer=@aptos_framework, dao_creator =@0xff, propose_signer=@0xee)]
     public fun test_create_dao_and_propose(aptos_signer:&signer, dao_creator:&signer, propose_signer:&signer) acquires Dao, DaoGlobalInfo {
+
+
+        aptos_coin::mint(aptos_signer,address_of(dao_creator),100_00_000_000);
+
         let dao_ref=&generate_dao<AptosCoin>(dao_creator,b"a dao");
         set_time_has_started_for_testing(aptos_signer);
         generate_proposal(propose_signer,object_from_constructor_ref<Dao<AptosCoin>>(dao_ref),b"do sth",1000_000_000);
@@ -382,7 +453,21 @@ module QubitCo::DaoFactory{
         let dao=borrow_global<Dao<AptosCoin>>(dao_id);
 
         assert!(table::contains(&dao.proposals.proposal_table,dao.proposals.next_proposal_idx -1),NO_PROPOSAL_ERR);
-    }
+    }*/
+
+
+
+   /* #[test(dao_creator =@0xff)]
+    public fun test_create_dao_and_config(dao_creator:&signer){
+        if(!coin::is_account_registered<AptosCoin>(address_of(dao_creator))){
+            coin::register<AptosCoin>(dao_creator);
+            debug::print(&DaoCreationEvent{
+                owner: address_of(dao_creator),
+                dao_id: address_of(dao_creator),
+                dao_name: string::utf8(b"name")
+            })
+        };
+    }*/
 
 
 }

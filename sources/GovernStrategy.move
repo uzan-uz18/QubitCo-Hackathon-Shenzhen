@@ -2,6 +2,7 @@ module QubitCo::GovernStrategy{
     use std::signer;
     use std::string;
     use aptos_std::table;
+    use aptos_framework::event;
     use aptos_framework::object;
     use aptos_framework::randomness;
     #[test_only]
@@ -44,7 +45,7 @@ module QubitCo::GovernStrategy{
 
     }
 
-    public fun execute_strategy(strategy_name:string::String, stake: u64, supply: u64): u64 acquires GovernStrategyStore, SimpleLog2ModelRandomAdjustment {
+    public(friend) fun execute_strategy(strategy_name:string::String, stake: u64, supply: u64): u64 acquires GovernStrategyStore, SimpleLog2ModelRandomAdjustment {
         if(string::utf8(b"SimpleLog2ModelRandomAdjustment")==strategy_name){
             return calculate_SimpleLog2ModelRandomAdjustment(stake,supply)
         };
@@ -57,9 +58,13 @@ module QubitCo::GovernStrategy{
 
         let lookup_table_ref=& borrow_global<SimpleLog2ModelRandomAdjustment>(obj_addr).log2_mul1000_lookup_table;
 
-        let log2_mul_1000_r =*table::borrow<u64,u64>(lookup_table_ref,stake*100/supply);
+        let log2_mul_1000_r =table::borrow<u64,u64>(lookup_table_ref,stake*100/supply);
 
-        let rate_mul100=51*log2_mul_1000_r/1000;
+        let rate_mul100=51*(*log2_mul_1000_r)/1000;
+
+        if(rate_mul100==0){
+            rate_mul100=1;
+        };
 
         let final_take=stake-randomness::u64_range(0,rate_mul100)*stake/100;
         final_take
@@ -171,6 +176,11 @@ module QubitCo::GovernStrategy{
 
     #[test_only]
     struct DebugNum has drop{
+        num:u64
+    }
+
+    #[event]
+    struct EventNum has store,drop{
         num:u64
     }
 
