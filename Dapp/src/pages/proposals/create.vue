@@ -59,16 +59,71 @@
       </div>
     </div>
     <div>
-        <UButton type="submit" label="submit" size="xl" variant="outline" color="" :disabled="!!!state.title" />
+      <UButton
+        type="submit"
+        label="submit"
+        size="xl"
+        variant="outline"
+        color=""
+        :disabled="!!!state.title"
+        @click="onSubmit"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useRoute } from "vue-router";
+import { runFn } from "~/dataset/data";
+import type { InputTransactionData } from "@aptos-labs/wallet-adapter-core";
+
+const toast = useToast();
+const route = useRoute();
+const dao_id = route.query.dao_id as string;
+const {
+  public: { daoId, addrModules },
+} = useRuntimeConfig();
+
+/**
+ * dao_id addr
+ * action string
+ * action_delay number
+ */
 const state = reactive({
-  title: undefined,
-  content: undefined,
+  title: "",
+  content: "",
 });
+
+const onSubmit = async () => {
+  const transaction: InputTransactionData = {
+    data: {
+      function: `${addrModules}propose` as `${string}::${string}::${string}`,
+      functionArguments: [
+        daoId,
+        (state.title + state.content) as string,
+        604800000000,
+      ],
+    },
+  };
+  runFn(transaction)
+    .then(() => {
+      toast.add({
+        id: state.title,
+        icon: "i-heroicons-check-badge",
+        title: "Notification",
+        description: "Proposal create success",
+      });
+    })
+    .catch((error) => {
+      toast.add({
+        id: state.title,
+        title: "Notification",
+        description: "Proposal create failed",
+        color: "red",
+      });
+    });
+};
+
 const links = [
   {
     label: "Home",
