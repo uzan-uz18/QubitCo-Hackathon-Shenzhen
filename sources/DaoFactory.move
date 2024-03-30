@@ -77,7 +77,7 @@ module QubitCo::DaoFactory{
     }
 
     /// Proposal data struct.
-    struct Proposal<phantom Token> has store {
+    struct Proposal<phantom Token> has store,copy {
         /// id of the proposal
         idx: u64,
         /// creator of the proposal
@@ -405,6 +405,51 @@ module QubitCo::DaoFactory{
         voter_address: address,
         agree: bool,
         final_stake: u64
+    }
+
+
+    ///View functions
+    /// /*/// creator of the proposal
+    //         proposer: address,
+    //         /// when voting begins.
+    //         start_time: u64,
+    //         /// when voting ends.
+    //         end_time: u64,
+    //         /// count of voters who agree with the proposal
+    //         for_votes: u64,
+    //         /// count of voters who're against the proposal
+    //         against_votes: u64,
+    //         /// executable after this time.
+    //         eta: u64,
+    //         /// after how long, the agreed proposal can be executed.
+    //         action_delay: u64,
+    //         /// how many votes to reach to make the proposal pass.
+    //         quorum_votes: u64,
+    //         /// proposal action.
+    //         action: option::Option<string::String>,*/
+
+    #[view]
+    public fun query_proposal<Token>(dao_obj:Object<Dao<Token>>,proposal_idx:u64):(u64,u64,u64,u64,u64,u64,u64,string::String) acquires Dao {
+        let dao=borrow_global<Dao<Token>>(object_address(&dao_obj));
+        let proposal_table=& dao.proposals.proposal_table;
+
+        let proposal=table::borrow(proposal_table,proposal_idx);
+
+        let idx = proposal.idx;
+        let start_time = proposal.start_time;
+        let end_time = proposal.end_time;
+        let for_votes = proposal.for_votes;
+        let against_votes = proposal.against_votes;
+        let eta = proposal.eta;
+        let action_delay = proposal.action_delay;
+        let quorum_votes = proposal.quorum_votes;
+        let action=string::utf8(b"");
+        if(option::is_some(&proposal.action)){
+            let sb=option::borrow(&proposal.action);
+            action=*sb;
+        };
+
+        (start_time, end_time, for_votes, against_votes, eta, action_delay, quorum_votes, action)
     }
 
 

@@ -62,4 +62,11 @@ module QubitCo::DaoProposeVoteScriptAptosCoin {
     }
 
 
+    ///view functions
+    #[view]
+    public fun query_proposal(dao_obj:Object<Dao<AptosCoin>>,proposal_idx:u64):(u64,u64,u64,u64,u64,u64,u64,string::String) {
+        DaoFactory::query_proposal<AptosCoin>(dao_obj,proposal_idx)
+    }
+
+
 }
