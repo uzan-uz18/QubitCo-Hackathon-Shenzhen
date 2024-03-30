@@ -6,14 +6,8 @@ module QubitCo::DaoProposeVoteScriptAptosCoin {
     use QubitCo::DaoFactory::Dao;
     use QubitCo::DaoFactory;
     use std::string;
-    use aptos_std::math128;
     use aptos_std::smart_vector;
-    use aptos_framework::event;
-    use aptos_framework::event::emit_event;
-    use aptos_framework::randomness;
-    use QubitCo::GovernStrategy::RandomModelAdjustment;
-    #[test_only]
-    use aptos_std::debug;
+
 
     struct DaoAdmins has key{
         dao_admins: smart_vector::SmartVector<DaoAdminAddress>
@@ -36,7 +30,7 @@ module QubitCo::DaoProposeVoteScriptAptosCoin {
         DaoFactory::generate_dao<AptosCoin>(creator,*string::bytes(&dao_name));
     }
 
-    entry fun config_dao(dao_admin:&signer,dao_obj:Object<Dao<AptosCoin>>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,random_adjust_enable:bool){
+    entry fun config_dao(dao_admin:&signer,dao_obj:Object<Dao<AptosCoin>>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,random_adjust_enable:string::String){
         DaoFactory::config_dao<AptosCoin>(dao_admin,dao_obj,voting_delay,voting_period,voting_quorum_rate,random_adjust_enable);
     }
 
@@ -48,35 +42,19 @@ module QubitCo::DaoProposeVoteScriptAptosCoin {
 
     #[randomness]
     entry fun vote(voter: &signer,
-    proposer_address: address,
-    dao_obj: Object<Dao<AptosCoin>>,
-    proposal_id: u64,
-    agree: bool,
+        proposer_address: address,
+        dao_obj: Object<Dao<AptosCoin>>,
+        proposal_id: u64,
+        agree: bool,
+        stake: u64
     ){
-        DaoFactory::cast_vote<AptosCoin,RandomModelAdjustment>(voter,proposer_address,dao_obj,proposal_id,agree);
-    }
-
-
-    #[randomness]
-    entry fun test_model(tester:&signer,max:u64,min:u64){
-        model(max,min);
+        DaoFactory::cast_vote<AptosCoin>(voter,proposer_address,dao_obj,proposal_id,agree,stake);
     }
 
 
     #[event]
     struct ModelEvent has drop, store{
         num:u64
-    }
-
-
-    fun model(max:u64,min:u64) {
-        event::emit(ModelEvent{
-            num:rnd(max,min)
-        });
-    }
-
-    public(friend) fun rnd(max:u64,min:u64):u64{
-        randomness::u64_range(min,max)
     }
 
 

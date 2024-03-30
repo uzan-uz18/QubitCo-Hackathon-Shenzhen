@@ -1,27 +1,24 @@
 module QubitCo::DaoFactory{
 
-    use std::fixed_point32::{Self,FixedPoint32};
+    use std::fixed_point32::{Self};
     use std::option;
     use std::signer;
     use std::signer::address_of;
     use std::string;
-    use aptos_std::math128;
-    use aptos_std::math64;
-    use aptos_std::math_fixed64;
     use aptos_std::string_utils::to_string;
     use aptos_std::table;
-    use aptos_framework::aptos_coin::AptosCoin;
     use aptos_framework::coin;
-    use aptos_framework::coin::Coin;
     use aptos_framework::event;
     use aptos_framework::guid;
     use aptos_framework::object;
     use aptos_framework::object::{object_exists, Object, ConstructorRef, object_address};
-    use aptos_framework::randomness;
     use aptos_framework::timestamp;
+    use QubitCo::GovernStrategy;
 
     #[test_only]
     use aptos_std::debug;
+    #[test_only]
+    use aptos_framework::aptos_coin::AptosCoin;
     #[test_only]
     use aptos_framework::object::object_from_constructor_ref;
     #[test_only]
@@ -30,9 +27,9 @@ module QubitCo::DaoFactory{
     /// ************************
     /// Some mock data for demo
     /// ************************
-    const TOKEN_SUPPLY:u64=1000_000_000;
+    const TOKEN_SUPPLY:u64=1000_000_000_000;
     const DEFAULT_MIN_ACTION_DELAY: u64=60_000;
-    const MIN_COIN_HOLD_FOR_VOTE:u64 = 1;
+    const MIN_COIN_HOLD_FOR_VOTE:u64 = 100_000_000;
 
     /// ERROR CODES
     const ERR_ONE_ACCOUNT_ONE_COIN_ONE_DAO: u64 = 1;
@@ -57,7 +54,7 @@ module QubitCo::DaoFactory{
     }
 
     /// Configuration of the `Token`'s DAO.
-    struct DaoConfig<phantom TokenT> has store,copy {
+    struct DaoConfig<phantom Token> has store,copy {
         /// after proposal created, how long use should wait before he can vote (in milliseconds)]
         voting_delay: u64,
         /// how long the voting window is (in milliseconds).
@@ -67,7 +64,7 @@ module QubitCo::DaoFactory{
         /// it should between (0, 100].
         voting_quorum_rate: u8,
         ///random punishment enabled or not
-        random_adjust_enable: bool
+        weight_adjustment_method: string::String
     }
 
     /// Proposal data struct.
@@ -128,6 +125,7 @@ module QubitCo::DaoFactory{
 
         let table=table::new<u64,Proposal<Token>>();
 
+
         move_to(&dao_signer,Dao<Token>{
             admin_address:address_of(creator),
             dao_name:string::utf8(dao_name),
@@ -140,7 +138,7 @@ module QubitCo::DaoFactory{
                 voting_delay:0,
                 voting_period:0,
                 voting_quorum_rate:50,
-                random_adjust_enable: false
+                weight_adjustment_method: string::utf8(b"NoAdjustment")
             }
         });
 
@@ -159,14 +157,14 @@ module QubitCo::DaoFactory{
     }
 
 
-    public(friend) fun config_dao<Token>(dao_admin:&signer,dao_obj:Object<Dao<Token>>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,random_adjust_enable:bool) acquires Dao {
+    public(friend) fun config_dao<Token>(dao_admin:&signer,dao_obj:Object<Dao<Token>>,voting_delay:u64,voting_period:u64,voting_quorum_rate:u8,rate_adjustment_method:string::String) acquires Dao {
         assert!(object::owns(dao_obj,address_of(dao_admin)),ERR_NOT_THE_OWNER);
         let obj_address=object::object_address(&dao_obj);
         let dao=borrow_global_mut<Dao<Token>>(obj_address);
         dao.dao_config.voting_period=voting_period;
         dao.dao_config.voting_delay=voting_delay;
         dao.dao_config.voting_quorum_rate=voting_quorum_rate;
-        dao.dao_config.random_adjust_enable=random_adjust_enable;
+        dao.dao_config.weight_adjustment_method =rate_adjustment_method;
     }
 
 
@@ -215,12 +213,13 @@ module QubitCo::DaoFactory{
 
     ///vote for a proposal
     /// users can vote
-    public(friend) fun cast_vote<Token,Strategy>(
+    public(friend) fun cast_vote<Token>(
         voter: &signer,
         proposer_address: address,
         dao_obj: Object<Dao<Token>>,
         proposal_id: u64,
         agree: bool,
+        stake: u64
     ) acquires Dao, VoteStorage {
         assert!(coin::balance<Token>(signer::address_of(voter))>MIN_COIN_HOLD_FOR_VOTE, ERR_NO_ENOUGH_BALANCE_FOR_VOTE);
         assert!(!has_vote<Token>(voter, proposer_address, proposal_id), ERR_DUPLICATED_V0TE);
@@ -228,18 +227,7 @@ module QubitCo::DaoFactory{
         let dao=borrow_global_mut<Dao<Token>>(object::object_address(&dao_obj));
         let proposal=table::borrow_mut(&mut dao.proposals.proposal_table,proposal_id);
 
-        let final_stake=0;
-        if(dao.dao_config.random_adjust_enable){
-/*
-def calculate_reduction_ratio(stake, total_supply):
-    a = 0.51 / np.log(2)
-    ratio = a * np.log(stake / total_supply + 1)
-    return ratio
-*/
-        } else {
-            final_stake=coin::balance<AptosCoin>(signer::address_of(voter));
-        };
-
+        let final_stake=GovernStrategy::execute_strategy(dao.dao_config.weight_adjustment_method,stake,TOKEN_SUPPLY);
 
         let vote=Vote<Token>{
             ///dao object id
@@ -319,11 +307,10 @@ def calculate_reduction_ratio(stake, total_supply):
     }
 
     fun calculation_model(stake:u64,max_supply:u64):u64{
-        fixed_point32::divide_u64(stake,max_supply);
-        fixed_point32::get_raw_value(math64::log2(stake/max_supply+1))
+        //fixed_point32::get_raw_value(math64::log2(fixed_point32::divide_u64(stake,fixed_point32::create_from_u64(max_supply))+1))
+        fixed_point32::divide_u64(stake*100,fixed_point32::create_from_u64(max_supply))
 
     }
-
 
 
     ///*****************
@@ -376,7 +363,7 @@ def calculate_reduction_ratio(stake, total_supply):
         dao.dao_config.voting_period=1000;
         dao.dao_config.voting_delay=1000;
         dao.dao_config.voting_quorum_rate=60;
-        dao.dao_config.random_adjust_enable=true;
+        dao.dao_config.weight_adjustment_method =string::utf8(b"RandomModelAdjustment");
 
         debug::print(&DebugBody{
             body: get_dao_config<AptosCoin>(dao_creator)
@@ -395,26 +382,6 @@ def calculate_reduction_ratio(stake, total_supply):
         let dao=borrow_global<Dao<AptosCoin>>(dao_id);
 
         assert!(table::contains(&dao.proposals.proposal_table,dao.proposals.next_proposal_idx -1),NO_PROPOSAL_ERR);
-    }
-
-    #[test]
-    public fun test_guid_equal(){
-        let uid1=guid::create_id(@0xff,1);
-        let uid2=guid::create_id(@0xff,1);
-        assert!(uid1==uid2,0)
-    }
-
-
-    #[test_only]
-    struct DebugNum has drop{
-        num:u64
-    }
-
-    #[test]
-    public fun test_calculate_num(){
-        debug::print(&DebugNum {
-            num:calculation_model(999,1000)
-        });
     }
 
 
