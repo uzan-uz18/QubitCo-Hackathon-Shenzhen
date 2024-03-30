@@ -8,8 +8,14 @@
 <body>
 <h1>GraphQL Request and Response Display</h1>
 
-<p>在查询的时候，只需要把0x852c844262fa204073c3d7ecc19fb352d23ed0a3022ba2b34efff60c82ec3d88::DaoFactory::DaoCreationEvent中的DaoCreationEvent换成
-    ProposalCreationEvent 或者VoteEvent 就可以完成对proposal和投票的查询</p>
+<pre>
+    在查询的时候, 只需要把0x852c844262fa204073c3d7ecc19fb352d23ed0a3022ba2b34efff60c82ec3d88::DaoFactory::DaoCreationEvent
+    中的 DaoCreationEvent 换成
+    ProposalCreationEvent 
+    或者
+    VoteEvent 
+    就可以完成对proposal和投票的查询
+</pre>
 
 <h2>Request Payload</h2>
 <pre id="requestPayload"></pre>
@@ -22,15 +28,7 @@
         const graphqlEndpoint = 'https://api.devnet.aptoslabs.com/v1/graphql';
         const queryText = `
 query MyQuery {
-  events(distinct_on: type, where: {type: {_eq: "0x852c844262fa204073c3d7ecc19fb352d23ed0a3022ba2b34efff60c82ec3d88::DaoFactory::DaoCreationEvent"}}) {
-    account_address
-    creation_number
-    event_index
-    indexed_type
-    sequence_number
-    transaction_block_height
-    transaction_version
-    type
+  events(where: {type: {_eq: "0x852c844262fa204073c3d7ecc19fb352d23ed0a3022ba2b34efff60c82ec3d88::DaoFactory::ProposalCreationEvent"}}) {
     data
   }
 }`.trim();
