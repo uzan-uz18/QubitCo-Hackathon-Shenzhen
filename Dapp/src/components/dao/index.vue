@@ -1,9 +1,15 @@
 <template>
-    <div>
-        <List :data="data" />
-    </div>
+  <div class="flex flex-col gap-y-10">
+    <DaoCard v-if="connectStatus" title="My Daos"/>
+    <UDivider v-if="connectStatus" />
+    <DaoCard title="Daos" />
+  </div>
 </template>
 
 <script setup lang="ts">
-const data = [1,2,3,4,5,6,7,8,9]
+const connectState = useState("connectState");
+
+const connectStatus = computed(
+  () => connectState.value || StorageUtil.getItem("addr")
+);
 </script>

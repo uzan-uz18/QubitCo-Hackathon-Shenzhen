@@ -1,6 +1,6 @@
 <template>
   <UBreadcrumb :links="links" class="mb-10" />
-  <div class="flex w-full gap-x-10">
+  <div class="flex lg:flex-row flex-col w-full gap-x-10">
     <div class="flex-1">
       <UCard
         class="mb-10"
@@ -13,19 +13,23 @@
         }"
       >
         <template #header>
-          <p>Initiate a Quarterly Community Grant Program</p>
+          <p>{{ detail.action }}</p>
           <div class="flex items-center justify-between">
             <div
               class="flex items-center gap-x-4 text-sm mt-4 text-gray-600 dark:text-gray-300"
             >
-              <UAvatar size="sm" />
-              <span>User addr</span>
+              <UAvatar
+                size="sm"
+                :src="`/images/avatar-${
+                  Math.floor(Math.random() * 3) + 1
+                }.webp`"
+              />
+              <span>{{ shortenString(detail.owner, 4, 4) }}</span>
             </div>
             <UButton
               icon="i-solar-square-share-line-outline"
               variant="outline"
               size="sm"
-              color=""
             />
           </div>
         </template>
@@ -77,7 +81,7 @@
         <template #footer>
           <div class="py-10 w-full">
             <div class="mb-6">Progress:</div>
-            <UProgress :value="2" :max="5" />
+            <UProgress :value="detail.progress" :max="100" />
           </div>
         </template>
       </UCard>
@@ -92,15 +96,12 @@
       >
         <div class="text-lg font-bold mb-4">Cast your vote</div>
         <div>
-          <UForm
-            class="space-y-4"
-            @submit="onSubmit"
-          >
-            <URadioGroup
-              v-model="selected"
-              :options="options"
-            />
-            <UButton type="submit" :disabled="!!!selected" > Submit </UButton>
+          <UForm class="space-y-4" @submit="onSubmit">
+            <UFormGroup label="Stake APT" name="stake">
+              <UInput placeholder="10" v-model="stake" />
+            </UFormGroup>
+            <URadioGroup v-model="selected" :options="options" />
+            <UButton type="submit" :disabled="!!!selected"> Submit </UButton>
           </UForm>
         </div>
       </UCard>
@@ -113,8 +114,8 @@
           background: 'bg-transparent dark:bg-transparent',
         }"
       >
-        <div class="">title</div>
-        <div class="">content</div>
+        <div class="">Information</div>
+        <div class="">Start: 2024-04-01 08:00:00</div>
       </UCard>
       <UCard
         :ui="{
@@ -125,9 +126,10 @@
           footer: { base: 'flex items-center justify-between' },
         }"
       >
-        <template #header> title </template>
-        <div>content</div>
-        <template #footer> time </template>
+        <template #header> Current results </template>
+        <div>yes: 80%</div>
+        <div>no: 20%</div>
+        <template #footer> 2024-05-01 08:00:00 End </template>
       </UCard>
     </div>
   </div>
@@ -135,6 +137,17 @@
 
 <script setup lang="ts">
 import { useRoute } from "vue-router";
+import { viewFn } from "~/dataset/data";
+import type { Proposal } from "@/utils/types";
+import { shortenString } from "@/utils/tools";
+import { runFn } from "@/dataset/data";
+import type { InputTransactionData } from "@aptos-labs/wallet-adapter-core";
+
+const toast = useToast();
+
+const {
+  public: { daoId, addrModules },
+} = useRuntimeConfig();
 
 const options = [
   {
@@ -145,21 +158,66 @@ const options = [
     value: "no",
     label: "No",
   },
-  {
-    value: "abandon",
-    label: "Abandon",
-  },
 ];
+
+const stake = ref(10);
 
 const selected = ref("");
 
-const onSubmit= ()=>{
-    console.log(selected.value);
-}
+const agree = computed(() => (selected.value === "yes" ? true : false));
+
+const onSubmit = () => {
+  const transaction: InputTransactionData = {
+    data: {
+      function: `${addrModules}vote` as `${string}::${string}::${string}`,
+      functionArguments: [
+        toRaw(detail.value).dao_id,
+        toRaw(detail.value).owner,
+        toRaw(detail.value).idx,
+        agree.value,
+        stake.value,
+      ],
+    },
+  };
+  runFn(transaction)
+    .then(() => {
+      toast.add({
+        id: "1",
+        icon: "i-heroicons-check-badge",
+        title: "Notification",
+        description: "Vote success",
+      });
+    })
+    .catch((error) => {
+      toast.add({
+        id: "2",
+        title: "Notification",
+        description: "Vote failed",
+        color: "red",
+      });
+    });
+};
 
 const route = useRoute();
-const proposalId = route.query.id;
-console.log(proposalId);
+const localIndex = route.query.localIndex as string;
+
+const detail = ref<Proposal>(StorageUtil.getItem(localIndex) as Proposal);
+
+onMounted(async () => {
+  if (!detail.value) {
+    const splitArray: string[] = localIndex.split("-");
+
+    const arr = await viewFn(
+      `${addrModules}query_proposal` as `${string}::${string}::${string}`,
+      [splitArray[1], Number(splitArray[0])]
+    );
+    detail.value = arr;
+    console.log(detail.value);
+
+    StorageUtil.setItem(localIndex, detail.value);
+  }
+});
+
 const links = [
   {
     label: "Home",
@@ -172,7 +230,7 @@ const links = [
     to: "/proposals",
   },
   {
-    label: "Proposal title",
+    label: toRaw(detail.value).action,
     icon: "i-heroicons-chat-bubble-oval-left-ellipsis",
   },
 ];

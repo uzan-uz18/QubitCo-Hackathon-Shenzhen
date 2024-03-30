@@ -6,5 +6,5 @@ export const wallets: Wallet[] = [new PetraWallet()]
 
 export const AptosClient = new Aptos(
     new AptosConfig({
-        network: Network.TESTNET
+        network: Network.DEVNET
     }),)
