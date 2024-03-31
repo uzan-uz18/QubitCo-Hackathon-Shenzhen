@@ -6,7 +6,7 @@
         v-if="connectState"
         label="Create Dao"
         variant="outline"
-        color=""
+        to="/dao/create"
       />
     </div>
     <UDivider class="shadow" />

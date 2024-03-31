@@ -10,8 +10,11 @@
       }"
     >
       <template #header>
-        <UAvatar size="3xl" :src="dao.icon" />
-        <span>{{ dao.dao_name }}</span>
+        <UAvatar
+          size="3xl"
+          :src="dao.icon"
+        />
+        <span>{{ dao.dao_name || dao.title }}</span>
       </template>
       <div>
         DAOs are often used for venture capital funding, charitable
@@ -46,9 +49,7 @@
             <div class="flex items-center gap-x-4">
               <UAvatar
                 size="sm"
-                :src="`/images/avatar-${
-                  Math.floor(Math.random() * 3) + 1
-                }.webp`"
+                :src="dao.icon"
               />
               <span>{{ shortenString(data[index].data.proposer, 4, 4) }}</span>
             </div>
@@ -121,6 +122,8 @@ import { shortenString } from "@/utils/tools";
 import { viewFn } from "@/dataset/data";
 import type { Proposal } from "@/utils/types";
 import type { Dao } from "@/utils/types";
+import { useRoute } from "vue-router";
+import { imgs } from "@/dataset/dao";
 
 const {
   public: { daoId, addrModules },
@@ -131,7 +134,9 @@ const { data, pending } = useAsyncData("mydata", async () => {
   return res;
 });
 
-const dao = StorageUtil.getItem("dao") as Dao;
+const route = useRoute();
+const dao_id = route.query.dao_id as string;
+const dao = StorageUtil.getItem(dao_id) as Dao;
 console.log(dao);
 
 

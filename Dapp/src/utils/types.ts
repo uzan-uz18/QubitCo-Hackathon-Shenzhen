@@ -21,4 +21,5 @@ export type Dao = {
     owner: string;
     icon?: string;
     description?: string;
+    title?: string
 };
