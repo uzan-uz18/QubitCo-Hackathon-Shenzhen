@@ -4,7 +4,7 @@ version = "1.0.0"
 authors = []
 
 [addresses]
-QubitCo="852c844262fa204073c3d7ecc19fb352d23ed0a3022ba2b34efff60c82ec3d88"
+QubitCo="ceb1952b202180a3c222a037d45a89e39db8c4227a7e47b5da30f1169bb2791d"
 
 [dev-addresses]
 
