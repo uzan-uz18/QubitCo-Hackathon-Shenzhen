@@ -10,7 +10,7 @@
     <div v-else>
       <UCard class="flex flex-col items-center py-10">
         <UAvatar class="" size="4xl" :src="icon" />
-        <div class="text-center font-bold text-2xl mt-4">
+        <div class="text-center font-bold text-2xl mt-4 line-clamp-1">
           {{ dao_name || title }}
         </div>
         <div class="text-center line-clamp-3 my-5">{{ description }}</div>
@@ -18,7 +18,7 @@
           <UButton
             class="text-lg font-bold"
             variant="outline"
-            to="/proposals"
+            :to="`/proposals?dao_id=${dao_id}`"
             size="xl"
             >check</UButton
           >
@@ -55,4 +55,14 @@ const props = withDefaults(defineProps<Props>(), {
   owner: "",
   dao_name: "",
 });
+if (props.dao_id) {
+  StorageUtil.setItem(props.dao_id, {
+    dao_name: props.dao_name,
+    dao_id: props.dao_id,
+    description: props.description,
+    owner: props.owner,
+    title: props.title,
+    icon: props.icon,
+  });
+}
 </script>

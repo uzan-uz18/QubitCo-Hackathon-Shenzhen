@@ -97,4 +97,5 @@ const runFn = async (transaction: InputTransactionData) => {
     console.log("success", res.hash);
 };
 
+
 export { getDaos, getProposals, getVote, viewFn, runFn }

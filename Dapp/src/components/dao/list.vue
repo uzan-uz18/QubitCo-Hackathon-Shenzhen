@@ -6,7 +6,13 @@
       :data-id="item.dao_id"
       class="block"
     >
-      <Item :loading="false" :title="item.dao_name || item.title" :icon="item.icon" :description="item.description" />
+      <Item
+        :loading="ok"
+        :title="item.dao_name || item.title"
+        :icon="item.icon"
+        :description="item.description"
+        :dao_id="item.dao_id"
+      />
     </li>
   </ul>
 </template>
@@ -15,10 +21,10 @@
 type Dao = {
   dao_id?: string;
   dao_name?: string;
-  owner?: string
+  owner?: string;
   title?: string;
   icon?: string;
-  description?: string
+  description?: string;
 };
 type Props = {
   data?: Dao[];
@@ -26,6 +32,4 @@ type Props = {
 };
 const props = defineProps<Props>();
 console.log(props.data);
-
-
 </script>

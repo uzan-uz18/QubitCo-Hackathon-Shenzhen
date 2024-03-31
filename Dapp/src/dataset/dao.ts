@@ -36,3 +36,5 @@ export const data: Data[] = [
         description: "A decentralized organization dedicated to stabilizing the value of its stablecoin, DAI, through autonomous interest rate adjustments based on market dynamics."
     },
 ];
+
+export const imgs = ["sky-garden", "digital-phoenix", "city-of-the-future"]
